@@ -126,7 +126,7 @@ use self::glob::{glob, Paths};
 use quote::quote;
 use std::path::PathBuf;
 use syn::parse::{Parse, ParseStream, Result};
-use syn::{parse_macro_input, Expr, ExprLit, Ident, Lit, Token, ItemFn};
+use syn::{parse_macro_input, Attribute, Expr, ExprLit, Ident, ItemFn, Lit, Token};
 
 // Form canonical name without any punctuation/delimiter or special character
 fn canonical_fn_name(s: &str) -> String {
@@ -163,6 +163,13 @@ impl Parse for MacroAttributes {
             glob_pattern,
         })
     }
+}
+
+fn relevant_attribs_from_ast(func_ast: &ItemFn, ident_str: &str) -> Vec<Attribute> {
+    func_ast.clone().attrs.into_iter().filter
+     (|a| {
+         a.path.segments.iter().all(|ps| ps.ident!=ident_str)
+     }).collect()
 }
 
 /// Macro generating test-functions, invoking the fn for each item matching the resource-pattern.
@@ -241,6 +248,8 @@ pub fn test_resources(attrs: TokenStream, func: TokenStream) -> TokenStream {
     let func_ast: ItemFn = syn::parse(func)
         .expect("failed to parse tokens as a function");
 
+    let func_attrs = relevant_attribs_from_ast(&func_ast, "test_resources");
+
     let func_ident = func_ast.ident;
 
     let paths: Paths = glob(&pattern).expect(&format!("No such file or directory {}", &pattern));
@@ -261,9 +270,11 @@ pub fn test_resources(attrs: TokenStream, func: TokenStream) -> TokenStream {
             // quote! requires proc_macro2 elements
             let test_ident = proc_macro2::Ident::new(&test_name, proc_macro2::Span::call_site());
 
+            let func_attrs = func_attrs.clone();
             let item = quote! {
                 #[test]
                 #[allow(non_snake_case)]
+                #(#func_attrs)*
                 fn # test_ident () {
                     # func_ident ( #path_as_str .into() );
                 }
@@ -277,6 +288,7 @@ pub fn test_resources(attrs: TokenStream, func: TokenStream) -> TokenStream {
     if result.0 == 0 {
         panic!("no resource matching the pattern {}", &pattern);
     }
+
     // transforming proc_macro2::TokenStream into proc_macro::TokenStream
     result.1.into()
 }
@@ -360,6 +372,8 @@ pub fn bench_resources(attrs: TokenStream, func: TokenStream) -> TokenStream {
     let func_ast: ItemFn = syn::parse(func)
         .expect("failed to parse tokens as a function");
 
+    let func_attrs = relevant_attribs_from_ast(&func_ast, "bench_resources");
+
     let func_ident = func_ast.ident;
 
     let paths: Paths = glob(&pattern).expect(&format!("No such file or directory {}", &pattern));
@@ -380,9 +394,11 @@ pub fn bench_resources(attrs: TokenStream, func: TokenStream) -> TokenStream {
             // quote! requires proc_macro2 elements
             let test_ident = proc_macro2::Ident::new(&test_name, proc_macro2::Span::call_site());
 
+            let func_attrs = func_attrs.clone();
             let item = quote! {
                 #[bench]
                 #[allow(non_snake_case)]
+                #(#func_attrs)*
                 fn # test_ident (b: &mut test::Bencher) {
                     # func_ident ( b, #path_as_str .into() );
                 }
